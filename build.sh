@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --onefile --windowed --icon "src/icon.ico" --add-data "src/classes.py;." --add-data "src/icon.ico;."  "src/main.py" --clean
