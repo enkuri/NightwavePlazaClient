@@ -1,22 +1,51 @@
 import requests
 import vlc
 import time
-from pypresence import Presence
+from pypresence import Presence, DiscordNotFound
 from threading import Thread
 
 
 class API:
-    def __init__(self):
-        self.url = 'https://api.plaza.one/'
-        self.last_request = None
-        self.last_data = {}
+    url = 'https://api.plaza.one/'
+    last_data = {}
+    downloaded = False
+    process = None
     
-    def request(self, endpoint: str, params: dict = {}) -> dict | int:
-        r = requests.request('GET', self.url + endpoint, params=params)
+    @classmethod
+    def request(cls, endpoint: str, params: dict = {}) -> dict | int:
+        r = requests.request('GET', cls.url + endpoint, params=params)
         if r.status_code != 200:
             return r.status_code
         else:
-            return r.json()
+            data = r.json()
+            cls.last_data[endpoint] = data
+            return data
+    
+    @classmethod
+    def from_storage(cls, endpoint: str) -> dict | int:
+        if endpoint in cls.last_data:
+            return cls.last_data.get(endpoint)
+        else:
+            return cls.request(endpoint)
+    
+    @classmethod
+    def downloading(cls, url, dest):
+        # do not call this function. Use API.download
+        data = requests.get(url).content
+        with open(dest, 'wb') as h:
+            h.write(data)
+
+    @classmethod
+    def download(cls, url: str, dest: str):
+        cls.process = Thread(target=cls.downloading, args=(url, dest))
+        cls.process.start()
+
+    @classmethod
+    def is_downloaded(cls):
+        if cls.process is not None and not cls.process.is_alive():
+            cls.process = None
+            return True
+        return False
 
 
 class Player:
@@ -51,17 +80,19 @@ class Player:
 
 
 class RPC:
-    client = API()
+    client = API
     paused = None
     running = True
     start = time.time()
 
-    rpc = Presence("981760124479733760")
-    rpc.connect()
+    rpc = None
 
     @classmethod
     def update(cls) -> None:
         """Update presence"""
+        if not cls.connect():
+            return
+
         if Player.is_playing():
             if cls.paused:
                 cls.paused = None
@@ -92,18 +123,37 @@ class RPC:
     @classmethod
     def start_thread(cls) -> None:
         """Create and start updating thread"""
-        def thread(cls):
+        def thread():
             while cls.running:
                 cls.update()
                 time.sleep(10)
         
-        Thread(target=thread, args=(cls,)).start()
+        if cls.connect():
+            Thread(target=thread).start()
+    
+    @classmethod
+    def connect(cls) -> bool:
+        """
+        Tries to connect Discord RPC
+        If RPC is connected or connecting was establish,
+        returns True. Othervise - False
+        """
+        if cls.rpc:
+            return True
+        try:
+            cls.rpc = Presence("981760124479733760")
+            cls.rpc.connect()
+            return True
+        except (DiscordNotFound, RuntimeError) as e:
+            print('Discord not found ({})'.format(e))
+            return False
 
     @classmethod
     def stop(cls) -> None:
         """Clear presence and stop updating thread"""
         cls.running = False
-        cls.rpc.clear()
+        if cls.rpc:
+            cls.rpc.clear()
 
 
 __all__ = ["API", "Player", "RPC"]

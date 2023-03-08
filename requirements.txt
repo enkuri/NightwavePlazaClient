@@ -2,3 +2,4 @@ python-vlc
 requests
 pypresence
 PySimpleGUI
+pillow
